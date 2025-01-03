@@ -1,13 +1,14 @@
 pub mod ag_series;
 pub mod ak_series;
-pub mod ch_series;
 pub mod ch510;
+pub mod ch_series;
 pub mod ld_series;
 pub mod ls_series;
+pub mod mystique;
 
 use crate::error;
-use std::process::exit;
 use hidapi::HidDevice;
+use std::process::exit;
 
 pub const DEFAULT_VENDOR_ID: u16 = 13875;
 pub const CH510_VENDOR_ID: u16 = 13523;

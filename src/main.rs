@@ -4,9 +4,10 @@ mod utils;
 
 use colored::*;
 use devices::*;
-use utils::{args::Args, status::*};
 use hidapi::HidApi;
-use std::process::exit;
+use rusb::{Context, Device, UsbContext};
+use std::{process::exit, time::Duration};
+use utils::{args::Args, status::*};
 
 fn main() {
     // Read args
@@ -17,7 +18,53 @@ fn main() {
         error!(err);
         exit(1);
     });
+    let mut _found_device = None;
+    for device in rusb::devices().unwrap().iter() {
+        let device_desc = device.device_descriptor().unwrap();
+
+        if device_desc.vendor_id() == DEFAULT_VENDOR_ID && device_desc.product_id() == 9 {
+            println!("Found MYSTIQUE cooler");
+            println!(
+                "Bus {:03} Device {:03} ID {:04x}:{:04x}",
+                device.bus_number(),
+                device.address(),
+                device_desc.vendor_id(),
+                device_desc.product_id()
+            );
+
+            _found_device = Some(device);
+        }
+    }
+
+    if _found_device.is_none() {
+        println!("Cannot find device");
+        exit(1);
+    }
+    let bytes: [u8; 47] = [
+        0xaa, 0x2e, 0x01, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x2c, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x49, 0x44, 0x43, 0x28, 0x02,
+    ];
+    let dev = _found_device.unwrap();
+
+    let dev_handle = dev.open().unwrap();
+
+    dev_handle.reset().unwrap();
+    dev_handle.write_bulk(2, &bytes, Duration::from_millis(1)).unwrap();
+    exit(0);
+
     let mut product_id = 0;
+
+    for device in api.device_list() {
+        println!(
+            "Device: {}; Vendor ID: {}; Product ID: {}; Product String: {};",
+            device.manufacturer_string().unwrap(),
+            format!("{:04x}", device.vendor_id()),
+            format!("{:04x}", device.product_id()),
+            device.product_string().unwrap()
+        );
+    }
+
     for device in api.device_list() {
         if device.vendor_id() == DEFAULT_VENDOR_ID {
             if args.pid == 0 || device.product_id() == args.pid {
@@ -48,13 +95,25 @@ fn main() {
     match product_id {
         // AK Series
         1..=4 => {
-            println!("Supported modes: {} [default: {}]", "auto temp usage".bold(), ak_series::DEFAULT_MODE.symbol());
+            println!(
+                "Supported modes: {} [default: {}]",
+                "auto temp usage".bold(),
+                ak_series::DEFAULT_MODE.symbol()
+            );
             // Connect to device
             let ak_device = ak_series::Display::new(&args.mode, args.fahrenheit, args.alarm);
             // Print current configuration
             print_device_status(
-                if args.mode == Mode::Default { ak_series::DEFAULT_MODE } else { args.mode },
-                if args.fahrenheit { TemperatureUnit::Fahrenheit } else { TemperatureUnit::Celsius },
+                if args.mode == Mode::Default {
+                    ak_series::DEFAULT_MODE
+                } else {
+                    args.mode
+                },
+                if args.fahrenheit {
+                    TemperatureUnit::Fahrenheit
+                } else {
+                    TemperatureUnit::Celsius
+                },
                 Alarm {
                     state: if args.alarm { AlarmState::On } else { AlarmState::Off },
                     temp_limit: if args.fahrenheit {
@@ -70,13 +129,25 @@ fn main() {
         }
         // LS Series
         6 => {
-            println!("Supported modes: {} [default: {}]", "auto temp power".bold(), ls_series::DEFAULT_MODE.symbol());
+            println!(
+                "Supported modes: {} [default: {}]",
+                "auto temp power".bold(),
+                ls_series::DEFAULT_MODE.symbol()
+            );
             // Connect to device
             let ls_device = ls_series::Display::new(&args.mode, args.fahrenheit, args.alarm);
             // Print current configuration
             print_device_status(
-                if args.mode == Mode::Default { ls_series::DEFAULT_MODE } else { args.mode },
-                if args.fahrenheit { TemperatureUnit::Fahrenheit } else { TemperatureUnit::Celsius },
+                if args.mode == Mode::Default {
+                    ls_series::DEFAULT_MODE
+                } else {
+                    args.mode
+                },
+                if args.fahrenheit {
+                    TemperatureUnit::Fahrenheit
+                } else {
+                    TemperatureUnit::Celsius
+                },
                 Alarm {
                     state: if args.alarm { AlarmState::On } else { AlarmState::Off },
                     temp_limit: if args.fahrenheit {
@@ -92,12 +163,20 @@ fn main() {
         }
         // AG Series
         8 => {
-            println!("Supported modes: {} [default: {}]", "auto temp usage".bold(), ag_series::DEFAULT_MODE.symbol());
+            println!(
+                "Supported modes: {} [default: {}]",
+                "auto temp usage".bold(),
+                ag_series::DEFAULT_MODE.symbol()
+            );
             // Connect to device
             let ag_device = ag_series::Display::new(&args.mode, args.alarm);
             // Print current configuration & warnings
             print_device_status(
-                if args.mode == Mode::Default { ag_series::DEFAULT_MODE } else { args.mode },
+                if args.mode == Mode::Default {
+                    ag_series::DEFAULT_MODE
+                } else {
+                    args.mode
+                },
                 TemperatureUnit::Celsius,
                 Alarm {
                     state: if args.alarm { AlarmState::On } else { AlarmState::Off },
@@ -111,6 +190,13 @@ fn main() {
             // Display loop
             ag_device.run(&api, DEFAULT_VENDOR_ID, product_id);
         }
+        // Mystique
+        9 => {
+            println!("Mystique cooler found")
+            //let mystique_device = mystique::Display::new();
+            //mystique_device.run(&api, DEFAULT_VENDOR_ID, product_id);
+        }
+
         // LD Series
         10 => {
             println!("Supported modes: {}", "auto".bold());
@@ -119,7 +205,11 @@ fn main() {
             // Print current configuration & warnings
             print_device_status(
                 ld_series::DEFAULT_MODE,
-                if args.fahrenheit { TemperatureUnit::Fahrenheit } else { TemperatureUnit::Celsius },
+                if args.fahrenheit {
+                    TemperatureUnit::Fahrenheit
+                } else {
+                    TemperatureUnit::Celsius
+                },
                 Alarm {
                     state: AlarmState::Auto,
                     temp_limit: if args.fahrenheit {
@@ -141,14 +231,29 @@ fn main() {
         }
         // CH Series & MORPHEUS
         5 | 7 | 21 => {
-            println!("Supported modes: {} [default: {}]", "auto temp usage".bold(), ch_series::DEFAULT_MODE.symbol());
+            println!(
+                "Supported modes: {} [default: {}]",
+                "auto temp usage".bold(),
+                ch_series::DEFAULT_MODE.symbol()
+            );
             // Connect to device
             let ch_device = ch_series::Display::new(&args.mode, args.fahrenheit);
             // Print current configuration & warnings
             print_device_status(
-                if args.mode == Mode::Default { ch_series::DEFAULT_MODE } else { args.mode },
-                if args.fahrenheit { TemperatureUnit::Fahrenheit } else { TemperatureUnit::Celsius },
-                Alarm { state: AlarmState::NotSupported, temp_limit: 0 },
+                if args.mode == Mode::Default {
+                    ch_series::DEFAULT_MODE
+                } else {
+                    args.mode
+                },
+                if args.fahrenheit {
+                    TemperatureUnit::Fahrenheit
+                } else {
+                    TemperatureUnit::Celsius
+                },
+                Alarm {
+                    state: AlarmState::NotSupported,
+                    temp_limit: 0,
+                },
                 ch_series::POLLING_RATE,
             );
             if args.alarm {
@@ -159,14 +264,29 @@ fn main() {
         }
         // CH510
         CH510_PRODUCT_ID => {
-            println!("Supported modes: {} [default: {}]", "cpu gpu".bold(), ch510::DEFAULT_MODE.symbol());
+            println!(
+                "Supported modes: {} [default: {}]",
+                "cpu gpu".bold(),
+                ch510::DEFAULT_MODE.symbol()
+            );
             // Connect to device
             let ch510 = ch510::Display::new(&args.mode, args.fahrenheit);
             // Print current configuration & warnings
             print_device_status(
-                if args.mode == Mode::Default { ch510::DEFAULT_MODE } else { args.mode },
-                if args.fahrenheit { TemperatureUnit::Fahrenheit } else { TemperatureUnit::Celsius },
-                Alarm { state: AlarmState::NotSupported, temp_limit: 0 },
+                if args.mode == Mode::Default {
+                    ch510::DEFAULT_MODE
+                } else {
+                    args.mode
+                },
+                if args.fahrenheit {
+                    TemperatureUnit::Fahrenheit
+                } else {
+                    TemperatureUnit::Celsius
+                },
+                Alarm {
+                    state: AlarmState::NotSupported,
+                    temp_limit: 0,
+                },
                 ch510::POLLING_RATE,
             );
             if args.alarm {
@@ -178,7 +298,9 @@ fn main() {
         _ => {
             println!("Device not yet supported!");
             println!("\nPlease create an issue on GitHub providing your device name and the following information:");
-            let device = api.open(DEFAULT_VENDOR_ID, product_id).unwrap_or_else(|_| device_error());
+            let device = api
+                .open(DEFAULT_VENDOR_ID, product_id)
+                .unwrap_or_else(|_| device_error());
             let info = device.get_device_info().unwrap();
             println!("Vendor ID: {}", info.vendor_id().to_string().bright_cyan());
             println!("Device ID: {}", info.product_id().to_string().bright_cyan());
